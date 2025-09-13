@@ -92,19 +92,11 @@ class ParquetWriter(BaseWriter):
                         }
 
     def preprocess_value(self, value):
-        """
-        Preprocess values for Parquet compatibility.
-        Convert all scalars to lists if needed or JSON-encode lists consistently.
-        """
         if isinstance(value, list):
-            # Convert inner items recursively
-            return [self.preprocess_value(v) for v in value]
+            return json.dumps([self.preprocess_value(v) for v in value])
         elif isinstance(value, str):
             return value.translate(self.translation_table)
-        elif value is None:
-            return None
-        else:
-            return value
+        return value
 
 
     def convert_input_labels(self, label):

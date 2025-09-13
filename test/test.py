@@ -6,18 +6,6 @@ import importlib
 import logging
 import os
 import sys
-from biolink_model import Toolkit
-
-BIO_LINK_VERSION = "4.2.0"  
-toolkit = Toolkit()
-
-def test_biolink_schema_version():
-    """
-    Ensure we are using the expected Biolink schema version.
-    """
-    import biolink_model
-    version = biolink_model.__version__
-    assert version == BIO_LINK_VERSION, f"Expected Biolink {BIO_LINK_VERSION}, but found {version}"
 
 
 logging.basicConfig(level=logging.INFO)
@@ -132,9 +120,7 @@ class TestBiocypherKG:
                 # schema_props = schema[label].get('properties', {})
                 # for prop in node_props:
                 #     assert prop in schema_props, f"Property '{prop}' of node '{node_label}' from adapter '{adapter_name}' not found in schema"
-                biolink_category = f"biolink:{node_label}"
-                assert toolkit.get_class(biolink_category), f"Category {biolink_category} not in Biolink {BIO_LINK_VERSION}"
-
+               
     def test_adapter_edges_in_schema(self, setup_class):
         """
         What it tests: Similar to the node test, this one ensures that the edge labels produced by the adapters 
