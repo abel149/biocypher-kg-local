@@ -56,40 +56,45 @@ class ParquetWriter(BaseWriter):
 
     def create_edge_types(self):
         """
-        Map edge types to their source and target node types based on the schema.
+        Map edge types to their source and target node types based on the schema,
+        supporting multiple source/target types if defined in lists.
         """
         schema = self.bcy._get_ontology_mapping()._extend_schema()
         self.edge_node_types = {}
 
         for k, v in schema.items():
-            if v["represented_as"] == "edge":
-                edge_type = self.convert_input_labels(k)
-                source_type = v.get("source", None)
-                target_type = v.get("target", None)
+            if v.get("represented_as") != "edge":
+                continue
 
-                if source_type is not None and target_type is not None:
-                    if isinstance(v["input_label"], list):
-                        labels = [self.convert_input_labels(l) for l in v["input_label"]]
-                    else:
-                        labels = [self.convert_input_labels(v["input_label"])]
+            # Normalize input labels
+            input_labels = v["input_label"]
+            if isinstance(input_labels, list):
+                labels = [self.convert_input_labels(l) for l in input_labels]
+            else:
+                labels = [self.convert_input_labels(input_labels)]
 
-                    if isinstance(source_type, list):
-                        source_types = [self.convert_input_labels(s) for s in source_type]
-                    else:
-                        source_types = [self.convert_input_labels(source_type)]
+            # Normalize source types
+            source = v.get("source")
+            if isinstance(source, list):
+                source_types = [self.convert_input_labels(s) for s in source]
+            else:
+                source_types = [self.convert_input_labels(source)]
 
-                    if isinstance(target_type, list):
-                        target_types = [self.convert_input_labels(t) for t in target_type]
-                    else:
-                        target_types = [self.convert_input_labels(target_type)]
+            # Normalize target types
+            target = v.get("target")
+            if isinstance(target, list):
+                target_types = [self.convert_input_labels(t) for t in target]
+            else:
+                target_types = [self.convert_input_labels(target)]
 
-                    output_label = v.get("output_label", labels[0])
-                    for l in labels:
-                        self.edge_node_types[l.lower()] = {
-                            "source": source_types,
-                            "target": target_types,
-                            "output_label": output_label.lower() if output_label else l
-                        }
+            # Make all combinations of labels, source, and target
+            for lbl, src, tgt in zip(labels, source_types, target_types):
+                output_label = v.get("output_label", lbl)
+                self.edge_node_types[lbl.lower()] = {
+                    "source": src.lower(),
+                    "target": tgt.lower(),
+                    "output_label": output_label.lower()
+                }
 
     def preprocess_value(self, value):
         if isinstance(value, list):
