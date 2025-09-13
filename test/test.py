@@ -173,6 +173,6 @@ class TestBiocypherKG:
                 # schema_props = schema[edge_label].get('properties', {})
                 # for prop in edge_props:
                 #     assert prop in schema_props, f"Property '{prop}' of edge '{edge_label}' from adapter '{adapter_name}' not found in schema"
-            
+               
 
 # Additional tests can be added here
