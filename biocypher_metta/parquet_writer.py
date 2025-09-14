@@ -53,12 +53,24 @@ class ParquetWriter(BaseWriter):
         self._edge_headers = defaultdict(set)
         self._temp_files = {}
         self.temp_buffer = defaultdict(list)
+    def safe_schema(self):
+        schema = self.bcy._get_ontology_mapping()._extend_schema()
+        safe = {}
+        for k, v in schema.items():
+            try:
+                # Will raise TypeError if entity belongs to multiple types
+                if v.get("represented_as"):
+                    safe[k] = v
+            except TypeError:
+                logger.warning(f"Skipping conflicting entity: {k}")
+                continue
+        return safe
 
     def create_edge_types(self):
         """
         Map edge types to their source and target node types based on the schema.
         """
-        schema = self.bcy._get_ontology_mapping()._extend_schema()
+        schema = schema = self.safe_schema()
         self.edge_node_types = {}
 
         for k, v in schema.items():
