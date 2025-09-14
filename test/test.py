@@ -105,61 +105,47 @@ def setup_class(request):
 
     return node_labels, edges_schema, adapters_config, dbsnp_rsids_dict, dbsnp_pos_dict
 
+
 def validate_node_type(node_id, node_label, schema_node_labels):
     """
-    Validate if a node type matches the schema, handling tuple IDs.
+    Validate node type, allowing for multi-role entities in Biolink.
     """
     if isinstance(node_id, tuple):
-        node_type = node_id[0]
-        return node_type in schema_node_labels
+        node_type = node_id[0].lower()
+        return node_type in schema_node_labels or convert_input_labels(node_label) in schema_node_labels
     else:
-        # For non-tuple IDs, check if the label is in schema
-        label = convert_input_labels(node_label)
-        return label in schema_node_labels
+        return convert_input_labels(node_label) in schema_node_labels
+
 
 def validate_edge_type_compatibility(source_id, target_id, edge_label, edges_schema):
     """
     Validate if source and target types are compatible with edge schema.
-    Handles both single types and list types.
+    Accepts lists or single types.
     """
-    if edge_label.lower() not in edges_schema:
+    edge_label_lc = convert_input_labels(edge_label)
+    if edge_label_lc not in edges_schema:
         return False, f"Edge label '{edge_label}' not found in schema"
-    
-    edge_def = edges_schema[edge_label.lower()]
+
+    edge_def = edges_schema[edge_label_lc]
     valid_source_types = edge_def["source"]
     valid_target_types = edge_def["target"]
-    
-    # Extract source type
-    if isinstance(source_id, tuple):
-        source_type = source_id[0].lower()
-    else:
-        # For non-tuple source IDs, we can't validate type compatibility
-        return True, "Cannot validate source type for non-tuple ID"
-    
-    # Extract target type
-    if isinstance(target_id, tuple):
-        target_type = target_id[0].lower()
-    else:
-        # For non-tuple target IDs, we can't validate type compatibility
-        return True, "Cannot validate target type for non-tuple ID"
-    
-    # Validate source type
+
+    source_type = source_id[0].lower() if isinstance(source_id, tuple) else str(source_id).lower()
+    target_type = target_id[0].lower() if isinstance(target_id, tuple) else str(target_id).lower()
+
     if isinstance(valid_source_types, list):
-        if source_type not in valid_source_types:
-            return False, f"Source type '{source_type}' not in valid types {valid_source_types}"
+        source_ok = source_type in valid_source_types
     else:
-        if source_type != valid_source_types:
-            return False, f"Source type '{source_type}' does not match required '{valid_source_types}'"
-    
-    # Validate target type
+        source_ok = source_type == valid_source_types
+
     if isinstance(valid_target_types, list):
-        if target_type not in valid_target_types:
-            return False, f"Target type '{target_type}' not in valid types {valid_target_types}"
+        target_ok = target_type in valid_target_types
     else:
-        if target_type != valid_target_types:
-            return False, f"Target type '{target_type}' does not match required '{valid_target_types}'"
-    
-    return True, "Valid"
+        target_ok = target_type == valid_target_types
+
+    return source_ok and target_ok, f"Source: {source_type}, Target: {target_type}, Expected sources: {valid_source_types}, Expected targets: {valid_target_types}"
+
+
 
 @pytest.mark.filterwarnings("ignore")
 class TestBiocypherKG:
