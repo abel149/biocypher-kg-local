@@ -56,53 +56,44 @@ class ParquetWriter(BaseWriter):
 
     def create_edge_types(self):
         """
-        Map edge types to their source and target node types based on the schema,
-        supporting multiple source/target types if defined in lists.
+        Map edge types to their source and target node types based on the schema.
         """
         schema = self.bcy._get_ontology_mapping()._extend_schema()
         self.edge_node_types = {}
 
         for k, v in schema.items():
-            if v.get("represented_as") != "edge":
-                continue
+            if v["represented_as"] == "edge":
+                edge_type = self.convert_input_labels(k)
+                source_type = v.get("source", None)
+                target_type = v.get("target", None)
 
-            # Normalize input labels
-            input_labels = v["input_label"]
-            if isinstance(input_labels, list):
-                labels = [self.convert_input_labels(l) for l in input_labels]
-            else:
-                labels = [self.convert_input_labels(input_labels)]
+                if source_type is not None and target_type is not None:
+                    if isinstance(v["input_label"], list):
+                        label = self.convert_input_labels(v["input_label"][0])
+                        source_type = self.convert_input_labels(source_type[0])
+                        target_type = self.convert_input_labels(target_type[0])
+                    else:
+                        label = self.convert_input_labels(v["input_label"])
+                        source_type = self.convert_input_labels(source_type)
+                        target_type = self.convert_input_labels(target_type)
+                    output_label = v.get("output_label", None)
 
-            # Normalize source types
-            source = v.get("source")
-            if isinstance(source, list):
-                source_types = [self.convert_input_labels(s) for s in source]
-            else:
-                source_types = [self.convert_input_labels(source)]
-
-            # Normalize target types
-            target = v.get("target")
-            if isinstance(target, list):
-                target_types = [self.convert_input_labels(t) for t in target]
-            else:
-                target_types = [self.convert_input_labels(target)]
-
-            # Make all combinations of labels, source, and target
-            for lbl, src, tgt in zip(labels, source_types, target_types):
-                output_label = v.get("output_label", lbl)
-                self.edge_node_types[lbl.lower()] = {
-                    "source": src.lower(),
-                    "target": tgt.lower(),
-                    "output_label": output_label.lower()
-                }
+                    self.edge_node_types[label.lower()] = {
+                        "source": source_type.lower(),
+                        "target": target_type.lower(),
+                        "output_label": output_label.lower() if output_label else label
+                    }
 
     def preprocess_value(self, value):
-        if isinstance(value, list):
-            return json.dumps([self.preprocess_value(v) for v in value])
-        elif isinstance(value, str):
+        """
+        Preprocess values for Parquet compatibility.
+        """
+        value_type = type(value)
+        if value_type is list:
+            return [self.preprocess_value(item) for item in value]
+        if value_type is str:
             return value.translate(self.translation_table)
         return value
-
 
     def convert_input_labels(self, label):
         """
@@ -234,7 +225,7 @@ class ParquetWriter(BaseWriter):
 
     def write_edges(self, edges, path_prefix=None, adapter_name=None):
         """
-        Write edges to Parquet files, supporting multiple source and target types.
+        Write edges to Parquet files
         """
         self.temp_buffer.clear()
         self._temp_files.clear()
@@ -252,36 +243,32 @@ class ParquetWriter(BaseWriter):
                 # Get edge type information
                 if label in self.edge_node_types:
                     edge_info = self.edge_node_types[label]
-                    source_types = edge_info["source"]
-                    target_types = edge_info["target"]
+                    source_type = edge_info["source"]
+                    target_type = edge_info["target"]
 
+                    if source_type == "ontology_term":
+                        source_type = self.preprocess_id(source_id).split('_')[0]
+                    if target_type == "ontology_term":
+                        target_type = self.preprocess_id(target_id).split('_')[0]
+
+                    edge_label = edge_info.get("output_label", label)
+
+                    # Filter out excluded properties
                     filtered_props = {k: v for k, v in properties.items() if k not in self.excluded_properties}
+                    edge_data = {
+                        'source_id': self.preprocess_id(source_id),
+                        'target_id': self.preprocess_id(target_id),
+                        'source_type': source_type,
+                        'target_type': target_type,
+                        'label': edge_label,  
+                        **filtered_props
+                    }
 
-                    # Generate edges for all source/target type combinations
-                    for src_type in source_types:
-                        for tgt_type in target_types:
-                            src_type_final = src_type
-                            tgt_type_final = tgt_type
+                    writer_key = self._init_edge_writer(label, source_type, target_type, properties, path_prefix, adapter_name)
+                    self.temp_buffer[writer_key].append(edge_data)
 
-                            if src_type == "ontology_term":
-                                src_type_final = self.preprocess_id(source_id).split('_')[0]
-                            if tgt_type == "ontology_term":
-                                tgt_type_final = self.preprocess_id(target_id).split('_')[0]
-
-                            edge_data = {
-                                'source_id': self.preprocess_id(source_id),
-                                'target_id': self.preprocess_id(target_id),
-                                'source_type': src_type_final,
-                                'target_type': tgt_type_final,
-                                'label': edge_info.get("output_label", label),
-                                **filtered_props
-                            }
-
-                            writer_key = self._init_edge_writer(label, src_type_final, tgt_type_final, properties, path_prefix, adapter_name)
-                            self.temp_buffer[writer_key].append(edge_data)
-
-                            if len(self.temp_buffer[writer_key]) >= self.batch_size:
-                                self._write_buffer_to_temp(writer_key, self.temp_buffer[writer_key])
+                    if len(self.temp_buffer[writer_key]) >= self.batch_size:
+                        self._write_buffer_to_temp(writer_key, self.temp_buffer[writer_key])
 
             # Flush remaining buffers
             for key in list(self.temp_buffer.keys()):
@@ -290,6 +277,7 @@ class ParquetWriter(BaseWriter):
             # Second pass: convert to Parquet
             for key in self._edge_headers.keys():
                 input_label, source_type, target_type = key
+
                 file_suffix = f"{input_label}_{source_type}_{target_type}".lower()
                 parquet_file_path = output_dir / f"edges_{file_suffix}.parquet"
 
@@ -310,6 +298,7 @@ class ParquetWriter(BaseWriter):
                         if col not in df.columns:
                             df[col] = None
 
+                    # Convert to PyArrow Table and write to Parquet
                     table = pa.Table.from_pandas(df)
                     pq.write_table(table, parquet_file_path, compression='snappy')
 
